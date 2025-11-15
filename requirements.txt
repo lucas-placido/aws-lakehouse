@@ -1,0 +1,2 @@
+# Apenas para desenvolvimento local (opcional)
+boto3>=1.28.0

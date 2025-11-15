@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+terraform.tfvars
+terraform.tfvars.backup
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+lambda_packages/
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# AWS
+.aws/
+*.pem
+response.json
+
+# Environment
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Poetry
+poetry.lock
