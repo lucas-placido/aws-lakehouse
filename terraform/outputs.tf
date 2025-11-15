@@ -29,8 +29,8 @@ output "stepfunctions_state_machine_arn" {
 }
 
 output "lambda_function_arn" {
-  description = "Lambda function ARN"
-  value       = aws_lambda_function.nyc_tlc_ingest.arn
+  description = "Lambda function ARN (NOAA GHCN ingestion)"
+  value       = aws_lambda_function.noaa_ghcn_ingest.arn
 }
 
 output "resource_group_arn" {

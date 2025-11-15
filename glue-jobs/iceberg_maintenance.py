@@ -17,6 +17,8 @@ args = getResolvedOptions(
         "DATABASE",
         "TABLES",
         "SNAPSHOT_RETENTION_DAYS",
+        "SILVER_BUCKET",
+        "GOLD_BUCKET",
     ],
 )
 
@@ -25,6 +27,8 @@ glueContext = GlueContext(sc)
 spark = glueContext.spark_session
 job = Job(glueContext)
 job.init(args["JOB_NAME"], args)
+
+# Iceberg é configurado via --conf no Terraform antes da sessão Spark ser criada
 
 database = args["DATABASE"]
 tables = args["TABLES"].split(",")

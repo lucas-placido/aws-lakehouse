@@ -18,6 +18,14 @@ SOURCE_BUCKET = "noaa-ghcn-pds"
 SOURCE_PREFIX = "parquet/by_year/"
 YEAR = 2025
 
+# Arquivos de dimensão (tabelas de referência)
+DIMENSION_FILES = [
+    "ghcnd-countries.txt",
+    "ghcnd-inventory.txt",
+    "ghcnd-states.txt",
+    "ghcnd-stations.txt",
+]
+
 
 def get_dest_key(source_key: str) -> str:
     """Gera S3 key de destino mantendo estrutura relativa"""
@@ -27,6 +35,11 @@ def get_dest_key(source_key: str) -> str:
     # -> bronze/noaa_ghcn/YEAR=2025/ELEMENT=WT11/file.parquet
     relative_path = source_key.replace(SOURCE_PREFIX, "")
     return f"bronze/noaa_ghcn/{relative_path}"
+
+
+def get_dimension_dest_key(filename: str) -> str:
+    """Gera S3 key de destino para arquivos de dimensão"""
+    return f"bronze/noaa_ghcn/dimension/{filename}"
 
 
 def file_exists_in_s3(s3_client: boto3.client, bucket: str, key: str) -> bool:
@@ -156,7 +169,48 @@ def lambda_handler(event, context):
     print(f"Região: {aws_region}")
     print(f"Ano: {YEAR}")
 
+    # Copia arquivos de dimensão primeiro
+    dimension_copied = 0
+    dimension_skipped = 0
+    dimension_errors = 0
+
+    print("\n=== Iniciando ingestão de arquivos de dimensão ===")
+    for dimension_file in DIMENSION_FILES:
+        source_key = dimension_file
+        dest_key = get_dimension_dest_key(dimension_file)
+
+        # Verifica se já existe
+        if file_exists_in_s3(s3_client, BRONZE_BUCKET, dest_key):
+            print(f"Já existe: {dest_key}")
+            dimension_skipped += 1
+            continue
+
+        # Tenta copiar
+        try:
+            if copy_from_registry_to_bronze(
+                s3_client,
+                public_s3_client,
+                SOURCE_BUCKET,
+                source_key,
+                BRONZE_BUCKET,
+                dest_key,
+            ):
+                print(f"Copiado: {source_key} -> {dest_key}")
+                dimension_copied += 1
+            else:
+                print(f"Falha ao copiar: {source_key}")
+                dimension_errors += 1
+        except Exception as e:
+            print(f"Erro ao copiar {source_key}: {e}")
+            dimension_errors += 1
+
+    print(
+        f"Arquivos de dimensão: {dimension_copied} copiados, "
+        f"{dimension_skipped} ignorados, {dimension_errors} erros"
+    )
+
     # Lista todos os arquivos parquet para o ano especificado
+    print("\n=== Iniciando ingestão de arquivos Parquet ===")
     parquet_files = list_parquet_files(public_s3_client, YEAR)
 
     if not parquet_files:
@@ -164,10 +218,19 @@ def lambda_handler(event, context):
         return {
             "statusCode": 200,
             "body": {
-                "message": "Nenhum arquivo encontrado",
-                "copiados": 0,
-                "ignorados": 0,
-                "erros": 0,
+                "message": "Ingestão concluída (sem arquivos parquet)",
+                "parquet": {
+                    "copiados": 0,
+                    "ignorados": 0,
+                    "erros": 0,
+                    "total_arquivos": 0,
+                },
+                "dimension": {
+                    "copiados": dimension_copied,
+                    "ignorados": dimension_skipped,
+                    "erros": dimension_errors,
+                    "total_arquivos": len(DIMENSION_FILES),
+                },
             },
         }
 
@@ -204,9 +267,17 @@ def lambda_handler(event, context):
         "statusCode": 200,
         "body": {
             "message": "Ingestão concluída",
-            "copiados": total_copied,
-            "ignorados": total_skipped,
-            "erros": total_errors,
-            "total_arquivos": len(parquet_files),
+            "parquet": {
+                "copiados": total_copied,
+                "ignorados": total_skipped,
+                "erros": total_errors,
+                "total_arquivos": len(parquet_files),
+            },
+            "dimension": {
+                "copiados": dimension_copied,
+                "ignorados": dimension_skipped,
+                "erros": dimension_errors,
+                "total_arquivos": len(DIMENSION_FILES),
+            },
         },
     }

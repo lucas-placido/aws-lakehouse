@@ -34,8 +34,9 @@ resource "aws_iam_role_policy" "stepfunctions_glue" {
           "glue:BatchStopJobRun"
         ]
         Resource = [
-          aws_glue_job.nyc_tlc_bronze_to_silver.arn,
-          aws_glue_job.nyc_trips_silver_to_gold.arn,
+          aws_glue_job.noaa_dimensions_bronze_to_silver.arn,
+          aws_glue_job.noaa_ghcn_bronze_to_silver.arn,
+          aws_glue_job.noaa_ghcn_silver_to_gold.arn,
           aws_glue_job.iceberg_maintenance.arn
         ]
       }
@@ -56,7 +57,7 @@ resource "aws_iam_role_policy" "stepfunctions_lambda" {
           "lambda:InvokeFunction"
         ]
         Resource = [
-          aws_lambda_function.nyc_tlc_ingest.arn
+          aws_lambda_function.noaa_ghcn_ingest.arn
         ]
       }
     ]
@@ -76,9 +77,9 @@ resource "aws_sfn_state_machine" "lakehouse_pipeline" {
         Type     = "Task"
         Resource = "arn:aws:states:::lambda:invoke"
         Parameters = {
-          FunctionName = aws_lambda_function.nyc_tlc_ingest.function_name
+          FunctionName = aws_lambda_function.noaa_ghcn_ingest.function_name
         }
-        Next = "BronzeToSilver"
+        Next = "ProcessDimensions"
         Retry = [
           {
             ErrorEquals     = ["States.TaskFailed"]
@@ -88,16 +89,37 @@ resource "aws_sfn_state_machine" "lakehouse_pipeline" {
           }
         ]
       }
-      BronzeToSilver = {
+      ProcessDimensions = {
         Type     = "Task"
         Resource = "arn:aws:states:::glue:startJobRun.sync"
         Parameters = {
-          JobName = aws_glue_job.nyc_tlc_bronze_to_silver.name
+          JobName = aws_glue_job.noaa_dimensions_bronze_to_silver.name
           Arguments = {
             "--BRONZE_BUCKET"   = aws_s3_bucket.bronze.bucket
             "--SILVER_BUCKET"   = aws_s3_bucket.silver.bucket
             "--SILVER_DATABASE" = "silver"
-            "--SILVER_TABLE"    = "nyc_trips"
+          }
+        }
+        Next = "BronzeToSilver"
+        Retry = [
+          {
+            ErrorEquals     = ["States.TaskFailed"]
+            IntervalSeconds = 60
+            MaxAttempts     = 2
+            BackoffRate     = 2.0
+          }
+        ]
+      }
+      BronzeToSilver = {
+        Type     = "Task"
+        Resource = "arn:aws:states:::glue:startJobRun.sync"
+        Parameters = {
+          JobName = aws_glue_job.noaa_ghcn_bronze_to_silver.name
+          Arguments = {
+            "--BRONZE_BUCKET"   = aws_s3_bucket.bronze.bucket
+            "--SILVER_BUCKET"   = aws_s3_bucket.silver.bucket
+            "--SILVER_DATABASE" = "silver"
+            "--SILVER_TABLE"    = "noaa_ghcn"
           }
         }
         Next = "SilverToGold"
@@ -114,10 +136,10 @@ resource "aws_sfn_state_machine" "lakehouse_pipeline" {
         Type     = "Task"
         Resource = "arn:aws:states:::glue:startJobRun.sync"
         Parameters = {
-          JobName = aws_glue_job.nyc_trips_silver_to_gold.name
+          JobName = aws_glue_job.noaa_ghcn_silver_to_gold.name
           Arguments = {
             "--SILVER_DATABASE" = "silver"
-            "--SILVER_TABLE"    = "nyc_trips"
+            "--SILVER_TABLE"    = "noaa_ghcn"
             "--GOLD_BUCKET"     = aws_s3_bucket.gold.bucket
             "--GOLD_DATABASE"   = "gold"
           }
@@ -139,7 +161,7 @@ resource "aws_sfn_state_machine" "lakehouse_pipeline" {
           JobName = aws_glue_job.iceberg_maintenance.name
           Arguments = {
             "--DATABASE"                = "silver"
-            "--TABLES"                  = "nyc_trips"
+            "--TABLES"                  = "noaa_ghcn,dim_stations,dim_countries,dim_states,dim_inventory"
             "--SNAPSHOT_RETENTION_DAYS" = "7"
           }
         }

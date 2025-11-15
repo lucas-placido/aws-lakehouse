@@ -109,57 +109,86 @@ resource "aws_iam_role_policy" "glue_catalog" {
   })
 }
 
-# Glue Jobs
-resource "aws_glue_job" "nyc_tlc_bronze_to_silver" {
-  name     = "nyc-tlc-bronze-to-silver"
+# Glue Jobs - NOAA GHCN
+resource "aws_glue_job" "noaa_dimensions_bronze_to_silver" {
+  name     = "noaa-dimensions-bronze-to-silver"
   role_arn = aws_iam_role.glue_role.arn
 
   command {
-    script_location = "s3://${aws_s3_bucket.scripts.bucket}/glue-jobs/nyc_tlc_to_silver.py"
+    script_location = "s3://${aws_s3_bucket.scripts.bucket}/glue-jobs/noaa_dimensions_bronze_to_silver.py"
     python_version  = "3"
   }
 
   default_arguments = {
-    "--enable-spark-ui"         = "false"  # Desabilitado para reduzir custos
+    "--enable-spark-ui"         = "false"
     "--enable-metrics"          = "true"
     "--enable-glue-datacatalog" = "true"
     "--BRONZE_BUCKET"           = aws_s3_bucket.bronze.bucket
     "--SILVER_BUCKET"           = aws_s3_bucket.silver.bucket
     "--SILVER_DATABASE"         = "silver"
-    "--SILVER_TABLE"            = "nyc_trips"
     "--job-language"            = "python"
-    "--job-bookmark-option"     = "job-bookmark-enable"
+    "--conf"                    = "spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions --conf spark.sql.catalog.glue_catalog=org.apache.iceberg.spark.SparkCatalog --conf spark.sql.catalog.glue_catalog.warehouse=s3://${aws_s3_bucket.silver.bucket}/warehouse/ --conf spark.sql.catalog.glue_catalog.catalog-impl=org.apache.iceberg.aws.glue.GlueCatalog --conf spark.sql.catalog.glue_catalog.io-impl=org.apache.iceberg.aws.s3.S3FileIO"
   }
 
   glue_version      = "4.0"
-  number_of_workers = 2  # Mínimo necessário para performance
+  number_of_workers = 2
   worker_type       = "G.1X"
 
   tags = local.common_tags
 }
 
-resource "aws_glue_job" "nyc_trips_silver_to_gold" {
-  name     = "nyc-trips-silver-to-gold"
+resource "aws_glue_job" "noaa_ghcn_bronze_to_silver" {
+  name     = "noaa-ghcn-bronze-to-silver"
   role_arn = aws_iam_role.glue_role.arn
 
   command {
-    script_location = "s3://${aws_s3_bucket.scripts.bucket}/glue-jobs/nyc_trips_gold.py"
+    script_location = "s3://${aws_s3_bucket.scripts.bucket}/glue-jobs/noaa_ghcn_bronze_to_silver.py"
     python_version  = "3"
   }
 
   default_arguments = {
-    "--enable-spark-ui"         = "false"  # Desabilitado para reduzir custos
+    "--enable-spark-ui"         = "false"
     "--enable-metrics"          = "true"
     "--enable-glue-datacatalog" = "true"
+    "--BRONZE_BUCKET"           = aws_s3_bucket.bronze.bucket
+    "--SILVER_BUCKET"           = aws_s3_bucket.silver.bucket
     "--SILVER_DATABASE"         = "silver"
-    "--SILVER_TABLE"            = "nyc_trips"
-    "--GOLD_BUCKET"             = aws_s3_bucket.gold.bucket
-    "--GOLD_DATABASE"           = "gold"
+    "--SILVER_TABLE"            = "noaa_ghcn"
     "--job-language"            = "python"
+    "--job-bookmark-option"     = "job-bookmark-enable"
+    "--conf"                    = "spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions --conf spark.sql.catalog.glue_catalog=org.apache.iceberg.spark.SparkCatalog --conf spark.sql.catalog.glue_catalog.warehouse=s3://${aws_s3_bucket.silver.bucket}/warehouse/ --conf spark.sql.catalog.glue_catalog.catalog-impl=org.apache.iceberg.aws.glue.GlueCatalog --conf spark.sql.catalog.glue_catalog.io-impl=org.apache.iceberg.aws.s3.S3FileIO"
   }
 
   glue_version      = "4.0"
-  number_of_workers = 2  # Mínimo necessário para performance
+  number_of_workers = 2
+  worker_type       = "G.1X"
+
+  tags = local.common_tags
+}
+
+resource "aws_glue_job" "noaa_ghcn_silver_to_gold" {
+  name     = "noaa-ghcn-silver-to-gold"
+  role_arn = aws_iam_role.glue_role.arn
+
+  command {
+    script_location = "s3://${aws_s3_bucket.scripts.bucket}/glue-jobs/noaa_ghcn_silver_to_gold.py"
+    python_version  = "3"
+  }
+
+  default_arguments = {
+    "--enable-spark-ui"         = "false"
+    "--enable-metrics"          = "true"
+    "--enable-glue-datacatalog" = "true"
+    "--SILVER_DATABASE"         = "silver"
+    "--SILVER_TABLE"            = "noaa_ghcn"
+    "--GOLD_BUCKET"             = aws_s3_bucket.gold.bucket
+    "--GOLD_DATABASE"           = "gold"
+    "--job-language"            = "python"
+    "--conf"                    = "spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions --conf spark.sql.catalog.glue_catalog=org.apache.iceberg.spark.SparkCatalog --conf spark.sql.catalog.glue_catalog.warehouse=s3://${aws_s3_bucket.gold.bucket}/warehouse/ --conf spark.sql.catalog.glue_catalog.catalog-impl=org.apache.iceberg.aws.glue.GlueCatalog --conf spark.sql.catalog.glue_catalog.io-impl=org.apache.iceberg.aws.s3.S3FileIO"
+  }
+
+  glue_version      = "4.0"
+  number_of_workers = 2
   worker_type       = "G.1X"
 
   tags = local.common_tags
@@ -175,17 +204,20 @@ resource "aws_glue_job" "iceberg_maintenance" {
   }
 
   default_arguments = {
-    "--enable-spark-ui"         = "false"  # Desabilitado para reduzir custos
+    "--enable-spark-ui"         = "false"
     "--enable-metrics"          = "true"
     "--enable-glue-datacatalog" = "true"
     "--DATABASE"                = "silver"
-    "--TABLES"                  = "nyc_trips"
+    "--TABLES"                  = "noaa_ghcn,dim_stations,dim_countries,dim_states,dim_inventory"
     "--SNAPSHOT_RETENTION_DAYS" = "7"
+    "--SILVER_BUCKET"           = aws_s3_bucket.silver.bucket
+    "--GOLD_BUCKET"             = aws_s3_bucket.gold.bucket
     "--job-language"            = "python"
+    "--conf"                    = "spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions --conf spark.sql.catalog.glue_catalog=org.apache.iceberg.spark.SparkCatalog --conf spark.sql.catalog.glue_catalog.warehouse=s3://${aws_s3_bucket.silver.bucket}/warehouse/ --conf spark.sql.catalog.glue_catalog.catalog-impl=org.apache.iceberg.aws.glue.GlueCatalog --conf spark.sql.catalog.glue_catalog.io-impl=org.apache.iceberg.aws.s3.S3FileIO"
   }
 
   glue_version      = "4.0"
-  number_of_workers = 2  # Mínimo para G.1X
+  number_of_workers = 2
   worker_type       = "G.1X"
 
   tags = local.common_tags

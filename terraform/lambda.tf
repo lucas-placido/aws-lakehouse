@@ -59,22 +59,22 @@ resource "aws_iam_role_policy" "lambda_s3" {
   })
 }
 
-# Lambda Functions
-data "archive_file" "nyc_tlc_ingest" {
+# Lambda Functions - NOAA GHCN Data Ingestion
+data "archive_file" "noaa_ghcn_ingest" {
   type        = "zip"
   source_file = "${path.module}/../lambda/nyc_tlc_ingest.py"
-  output_path = "${path.module}/nyc_tlc_ingest.zip"
+  output_path = "${path.module}/noaa_ghcn_ingest.zip"
 }
 
-resource "aws_lambda_function" "nyc_tlc_ingest" {
-  filename         = data.archive_file.nyc_tlc_ingest.output_path
-  function_name    = "lakehouse-nyc-tlc-ingest"
+resource "aws_lambda_function" "noaa_ghcn_ingest" {
+  filename         = data.archive_file.noaa_ghcn_ingest.output_path
+  function_name    = "lakehouse-noaa-ghcn-ingest"
   role             = aws_iam_role.lambda_role.arn
   handler          = "nyc_tlc_ingest.lambda_handler"
-  source_code_hash = data.archive_file.nyc_tlc_ingest.output_base64sha256
+  source_code_hash = data.archive_file.noaa_ghcn_ingest.output_base64sha256
   runtime          = "python3.11"
-  timeout          = 300 # Reduzido de 900s para 300s (5min) - suficiente para cópia
-  memory_size      = 256 # Reduzido de 512MB para 256MB - otimização de custo
+  timeout          = 300 # 5 minutos - suficiente para cópia
+  memory_size      = 256 # Otimização de custo
 
   environment {
     variables = {
@@ -90,7 +90,7 @@ resource "aws_lambda_function" "nyc_tlc_ingest" {
 # EventBridge Rule para ingestão diária
 resource "aws_cloudwatch_event_rule" "daily_ingest" {
   name                = "lakehouse-daily-ingest"
-  description         = "Trigger daily data ingestion"
+  description         = "Trigger daily NOAA GHCN data ingestion"
   schedule_expression = "cron(0 2 * * ? *)" # 2 AM UTC daily
 
   tags = local.common_tags
@@ -98,14 +98,14 @@ resource "aws_cloudwatch_event_rule" "daily_ingest" {
 
 resource "aws_cloudwatch_event_target" "daily_ingest" {
   rule      = aws_cloudwatch_event_rule.daily_ingest.name
-  target_id = "TriggerNYCTLCIngest"
-  arn       = aws_lambda_function.nyc_tlc_ingest.arn
+  target_id = "TriggerNOAAGHCNIngest"
+  arn       = aws_lambda_function.noaa_ghcn_ingest.arn
 }
 
 resource "aws_lambda_permission" "allow_eventbridge" {
   statement_id  = "AllowExecutionFromEventBridge"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.nyc_tlc_ingest.function_name
+  function_name = aws_lambda_function.noaa_ghcn_ingest.function_name
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.daily_ingest.arn
 }
